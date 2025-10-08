@@ -19,10 +19,10 @@ import { useDisclosure, useInputState, useListState } from '@mantine/hooks';
 import { IconInfoCircle, IconPlayerPlayFilled } from '@tabler/icons-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-const CORE_JS_URL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core.js';
-const CORE_WASM_URL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm/ffmpeg-core.wasm';
+const FF_CORE_BASE_URL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
+const CORE_JS_URL = `${FF_CORE_BASE_URL}/ffmpeg-core.js`;
+const CORE_WASM_URL = `${FF_CORE_BASE_URL}/ffmpeg-core.wasm`;
 const MAX_PLAY_SECONDS = 120;
-const EMPTY_CAPTION_SRC = 'data:text/vtt,WEBVTT';
 
 type QuizTrackQuality = 'mp3_128' | 'mp3_320' | 'original';
 
@@ -181,7 +181,7 @@ export function AudioQuiz() {
       return;
     }
     if (!file) {
-      setFeedback({ text: '音声ファイルを選択してください。', tone: 'error' });
+      setFeedback({ text: '楽曲を選択してください。', tone: 'error' });
       return;
     }
     startConverting();
@@ -223,7 +223,6 @@ export function AudioQuiz() {
         const args = [...plan.command, plan.outputName];
         await ffmpeg.exec(args);
         const data = await ffmpeg.readFile(plan.outputName);
-        // FileDataはUint8Array | stringなので、Uint8Arrayに変換
         const uint8Array = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
         const blob = new Blob([uint8Array], { type: plan.mime });
         const url = URL.createObjectURL(blob);
@@ -243,7 +242,10 @@ export function AudioQuiz() {
         initialAnswers[track.id] = null;
       }
       setSelectedAnswers(initialAnswers);
-      setFeedback({ text: '変換が完了しました。曲を再生して当ててみよう！', tone: 'success' });
+      setFeedback({
+        text: `変換が完了しました。曲を再生して当ててみよう！(再生は冒頭${MAX_PLAY_SECONDS}秒まで)`,
+        tone: 'success'
+      });
     } catch (error) {
       console.error(error);
       setFeedback({ text: '音声変換に失敗しました。別のファイルでお試しください。', tone: 'error' });
@@ -252,7 +254,6 @@ export function AudioQuiz() {
         const ffmpeg = ffmpegRef.current;
         if (ffmpeg) {
           const tempFiles = await ffmpeg.listDir('.');
-          // listDirはFSNode[]を返す
           for (const item of tempFiles) {
             if (item.name.startsWith(baseIdentifier)) {
               ffmpeg.deleteFile?.(item.name);
@@ -363,12 +364,12 @@ export function AudioQuiz() {
 
   function checkAnswers() {
     if (tracks.length === 0) {
-      setFeedback({ text: 'まずは音声を変換してください。', tone: 'error' });
+      setFeedback({ text: 'まずは曲を変換してください。', tone: 'error' });
       return;
     }
     const unanswered = tracks.some((track) => !selectedAnswers[track.id]);
     if (unanswered) {
-      setFeedback({ text: 'すべての曲で推測を選択してください。', tone: 'error' });
+      setFeedback({ text: 'すべての曲で予想を選択してください。', tone: 'error' });
       return;
     }
     let correct = 0;
@@ -395,21 +396,23 @@ export function AudioQuiz() {
   return (
     <Box>
       <LoadingOverlay visible={coreLoading || converting} />
-      <Anchor href='/'>
-        <Title order={2}>音質当てクイズ</Title>
-      </Anchor>
-      <Title order={6} mb={'md'} c={'dimmed'}>
-        好きな音楽をアップロードして、音質の違いを当ててみよう！（再生は最大{MAX_PLAY_SECONDS}秒まで）。
-      </Title>
+      <Stack gap='lg'>
+        <Box>
+          <Anchor href='/'>
+            <Title order={2}>音質当てクイズ</Title>
+          </Anchor>
+          <Title order={6} c={'dimmed'}>
+            好きな音楽をアップロードして、音質の違いを当ててみよう！
+          </Title>
+        </Box>
 
-      <Stack gap='xl'>
-        <Paper withBorder p='lg' radius='md'>
-          <Stack gap='md'>
+        <Paper withBorder p='lg'>
+          <Stack>
             <Text fw={'bold'}>1. FFmpegのダウンロード</Text>
             <Button onClick={loadCore} disabled={coreLoaded} maw={260}>
               {coreLoaded ? 'ダウンロード済' : 'FFmpegをダウンロード(約30MB)'}
             </Button>
-            <Text fw={'bold'}>2. 音声ファイルの選択</Text>
+            <Text fw={'bold'}>2. 楽曲ファイルの選択</Text>
             <FileInput placeholder='選択' accept='audio/*' value={file} onChange={setFile} />
             <Center>
               <Button onClick={handleConvert} disabled={!coreLoaded || !file}>
@@ -432,8 +435,8 @@ export function AudioQuiz() {
         ) : null}
 
         {tracks.length > 0 ? (
-          <Paper withBorder p='lg' radius='md'>
-            <Stack gap='lg'>
+          <Paper withBorder p='lg'>
+            <Stack gap='lg' mb={'xs'}>
               {tracks.map((track, index) => (
                 <Stack key={track.id} gap='xs'>
                   <Group>
@@ -454,29 +457,22 @@ export function AudioQuiz() {
                     />
                   </Group>
                   <audio ref={getAudioRef(track.id)} src={track.url} preload='auto'>
-                    <track kind='captions' label='空字幕' src={EMPTY_CAPTION_SRC} srcLang='ja' default />
+                    <track
+                      kind='captions'
+                      label='空字幕'
+                      src='data:text/vtt,WEBVTT%0A%0A00:00:00.000%20-->%2000:00:00.500%0A音声トラック%0A'
+                      srcLang='ja'
+                      default
+                    />
                   </audio>
                 </Stack>
               ))}
               <Center>
-                <Button onClick={checkAnswers}>解答チェック</Button>
+                <Button onClick={checkAnswers}>解答チェック！</Button>
               </Center>
             </Stack>
           </Paper>
-        ) : (
-          <Paper withBorder p='lg' radius='md'>
-            <Stack gap='xs'>
-              <Text c='gray.7'>変換が完了すると、ここに3つの音源が表示されます。</Text>
-              <Text c='gray.6' fz='sm'>
-                ffmpeg.wasmについて詳しく知りたい方は
-                <Anchor href='https://ffmpegwasm.netlify.app/docs/overview' target='_blank' rel='noreferrer'>
-                  こちら
-                </Anchor>
-                をご覧ください。
-              </Text>
-            </Stack>
-          </Paper>
-        )}
+        ) : null}
       </Stack>
     </Box>
   );
