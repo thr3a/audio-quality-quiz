@@ -5,6 +5,7 @@ import {
   Anchor,
   Box,
   Button,
+  Center,
   FileInput,
   Group,
   LoadingOverlay,
@@ -134,7 +135,7 @@ export function AudioQuiz() {
         wasmURL: await toBlobURL(CORE_WASM_URL, 'application/wasm')
       });
       markCoreLoaded();
-      setFeedback({ text: 'ffmpeg-coreの読み込みが完了しました。', tone: 'success' });
+      // setFeedback({ text: 'ffmpeg-coreの読み込みが完了しました。', tone: 'success' });
     } catch (error) {
       setFeedback({ text: 'ffmpeg-coreの読み込みに失敗しました。時間をおいて再試行してください。', tone: 'error' });
       console.error(error);
@@ -176,7 +177,7 @@ export function AudioQuiz() {
   async function handleConvert() {
     const ffmpeg = ffmpegRef.current;
     if (!ffmpeg || !coreLoaded) {
-      setFeedback({ text: 'まずはffmpeg-coreを読み込んでください。', tone: 'error' });
+      setFeedback({ text: 'まずはFFmpegを読み込んでください。', tone: 'error' });
       return;
     }
     if (!file) {
@@ -201,13 +202,13 @@ export function AudioQuiz() {
           quality: 'mp3_128',
           outputName: `${baseIdentifier}_128.mp3`,
           command: ['-i', inputName, '-t', String(MAX_PLAY_SECONDS), '-c:a', 'libmp3lame', '-b:a', '128k'],
-          mime: 'audio/mpeg'
+          mime: getMimeByQuality('mp3_128', file.type)
         },
         {
           quality: 'mp3_320',
           outputName: `${baseIdentifier}_320.mp3`,
           command: ['-i', inputName, '-t', String(MAX_PLAY_SECONDS), '-c:a', 'libmp3lame', '-b:a', '320k'],
-          mime: 'audio/mpeg'
+          mime: getMimeByQuality('mp3_320', file.type)
         },
         {
           quality: 'original',
@@ -242,7 +243,7 @@ export function AudioQuiz() {
         initialAnswers[track.id] = null;
       }
       setSelectedAnswers(initialAnswers);
-      setFeedback({ text: '変換が完了しました。曲を再生して当ててみましょう。', tone: 'success' });
+      setFeedback({ text: '変換が完了しました。曲を再生して当ててみよう！', tone: 'success' });
     } catch (error) {
       console.error(error);
       setFeedback({ text: '音声変換に失敗しました。別のファイルでお試しください。', tone: 'error' });
@@ -392,15 +393,32 @@ export function AudioQuiz() {
   }
 
   return (
-    <Box pos='relative'>
+    <Box>
       <LoadingOverlay visible={coreLoading || converting} />
+      <Anchor href='/'>
+        <Title order={2}>音質当てクイズ</Title>
+      </Anchor>
+      <Title order={6} mb={'md'} c={'dimmed'}>
+        好きな音楽をアップロードして、音質の違いを当ててみよう！（再生は最大{MAX_PLAY_SECONDS}秒まで）。
+      </Title>
+
       <Stack gap='xl'>
-        <Stack gap='xs' ta='center'>
-          <Title order={1}>音質当てクイズ</Title>
-          <Text c='gray.7'>
-            好きな音楽をアップロードして、音質の違いを当ててみましょう（再生は最大{MAX_PLAY_SECONDS}秒まで）。
-          </Text>
-        </Stack>
+        <Paper withBorder p='lg' radius='md'>
+          <Stack gap='md'>
+            <Text fw={'bold'}>1. FFmpegのダウンロード</Text>
+            <Button onClick={loadCore} disabled={coreLoaded} maw={260}>
+              {coreLoaded ? 'ダウンロード済' : 'FFmpegをダウンロード(約30MB)'}
+            </Button>
+            <Text fw={'bold'}>2. 音声ファイルの選択</Text>
+            <FileInput placeholder='選択' accept='audio/*' value={file} onChange={setFile} />
+            <Center>
+              <Button onClick={handleConvert} disabled={!coreLoaded || !file}>
+                変換する
+              </Button>
+            </Center>
+          </Stack>
+        </Paper>
+
         {feedback ? (
           <Alert
             icon={<IconInfoCircle size={18} />}
@@ -412,31 +430,7 @@ export function AudioQuiz() {
             </Text>
           </Alert>
         ) : null}
-        <Paper withBorder p='lg' radius='md'>
-          <Stack gap='md'>
-            <Button onClick={loadCore} disabled={coreLoaded} variant='filled' color='blue' mx='auto' maw={240}>
-              {coreLoaded ? 'ffmpeg-core読み込み済み' : 'ffmpeg-coreを読み込む'}
-            </Button>
-            <FileInput
-              label='音声ファイル'
-              placeholder='音声ファイルを選択'
-              accept='audio/*'
-              value={file}
-              onChange={setFile}
-              withAsterisk
-            />
-            <Button
-              onClick={handleConvert}
-              disabled={!coreLoaded || !file}
-              variant='filled'
-              color='blue'
-              mx='auto'
-              maw={240}
-            >
-              変換
-            </Button>
-          </Stack>
-        </Paper>
+
         {tracks.length > 0 ? (
           <Paper withBorder p='lg' radius='md'>
             <Stack gap='lg'>
@@ -464,9 +458,9 @@ export function AudioQuiz() {
                   </audio>
                 </Stack>
               ))}
-              <Button onClick={checkAnswers} variant='filled' color='blue' mx='auto' maw={240}>
-                解答チェック
-              </Button>
+              <Center>
+                <Button onClick={checkAnswers}>解答チェック</Button>
+              </Center>
             </Stack>
           </Paper>
         ) : (
