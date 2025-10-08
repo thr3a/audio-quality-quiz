@@ -12,6 +12,9 @@
     "llmtext": "docker run --rm -v ./:/app thr3a/repo2text -d /app -f package.json vite.config.ts"
   },
   "dependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@mantine/core": "8.3.3",
     "@mantine/form": "^8.3.3",
     "@mantine/hooks": "8.3.3",
