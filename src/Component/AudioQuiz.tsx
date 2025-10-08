@@ -222,7 +222,9 @@ export function AudioQuiz() {
         const args = [...plan.command, plan.outputName];
         await ffmpeg.exec(args);
         const data = await ffmpeg.readFile(plan.outputName);
-        const blob = new Blob([data.buffer], { type: plan.mime });
+        // FileDataはUint8Array | stringなので、Uint8Arrayに変換
+        const uint8Array = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
+        const blob = new Blob([uint8Array], { type: plan.mime });
         const url = URL.createObjectURL(blob);
         objectUrlsRef.current.add(url);
         preparedTracks.push({
@@ -249,7 +251,8 @@ export function AudioQuiz() {
         const ffmpeg = ffmpegRef.current;
         if (ffmpeg) {
           const tempFiles = await ffmpeg.listDir('.');
-          for (const item of tempFiles.files) {
+          // listDirはFSNode[]を返す
+          for (const item of tempFiles) {
             if (item.name.startsWith(baseIdentifier)) {
               ffmpeg.deleteFile?.(item.name);
             }
@@ -351,10 +354,10 @@ export function AudioQuiz() {
 
   function handleAnswerChange(trackId: string, value: string | null) {
     if (!value) {
-      setSelectedAnswers((current) => ({ ...current, [trackId]: null }));
+      setSelectedAnswers({ ...selectedAnswers, [trackId]: null });
       return;
     }
-    setSelectedAnswers((current) => ({ ...current, [trackId]: value as QuizTrackQuality }));
+    setSelectedAnswers({ ...selectedAnswers, [trackId]: value as QuizTrackQuality });
   }
 
   function checkAnswers() {
