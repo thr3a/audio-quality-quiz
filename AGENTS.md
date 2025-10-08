@@ -5,6 +5,8 @@
 - 可能な限りReact純正のhookよりmantine hookを利用すること
 - 型定義はinterfaceではなくtypeを使用すること
 - src/scripts以下のTypyscriptコード実行する場合は `node --import tsx ./src/scripts/hello.ts` とすること 特に指示がなければ許可なく自動実行して良い。
+- コード生成、セットアップ手順、設定作業、またはライブラリ/APIドキュメントが必要な場合には常にcontext7を使用してください。
+これは、明示的に指示しなくても、Context7 MCPツールが自動的にライブラリIDを解決し、ライブラリドキュメントを取得できるようにすることを意味します。
 
 # ライブラリ概要
 
