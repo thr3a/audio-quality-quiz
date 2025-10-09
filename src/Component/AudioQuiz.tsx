@@ -1,4 +1,4 @@
-import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { FFmpeg, type LogEvent } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import {
   Alert,
@@ -75,7 +75,12 @@ export function AudioQuiz() {
   const audioRefCallbacks = useRef<Map<string, (instance: HTMLAudioElement | null) => void>>(new Map());
 
   useEffect(() => {
-    ffmpegRef.current = new FFmpeg();
+    const ffmpeg = new FFmpeg();
+    const logHandler = ({ message }: LogEvent) => {
+      console.log(message);
+    };
+    ffmpeg.on('log', logHandler);
+    ffmpegRef.current = ffmpeg;
     return () => {
       for (const [trackId, audio] of Object.entries(audioRefs.current)) {
         if (!audio) {
@@ -96,7 +101,9 @@ export function AudioQuiz() {
         URL.revokeObjectURL(url);
       }
       objectUrlsRef.current.clear();
-      ffmpegRef.current?.terminate?.();
+      ffmpeg.off('log', logHandler);
+      ffmpeg.terminate();
+      ffmpegRef.current = null;
     };
   }, []);
 
