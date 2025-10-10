@@ -147,7 +147,9 @@ export function AudioQuiz() {
   const [coreLoaded, { open: markCoreLoaded }] = useDisclosure(false);
   const [coreLoading, { open: startCoreLoading, close: finishCoreLoading }] = useDisclosure(false);
   const [converting, { open: startConverting, close: finishConverting }] = useDisclosure(false);
+  // 入力値の制御にはuseInputStateを採用し、Mantineの制御コンポーネントと双方向に同期しやすい形に揃える
   const [file, setFile] = useInputState<File | null>(null);
+  // QuizTrack配列はuseListStateで管理し、差分更新やシャッフルなどの配列操作をハンドラ経由で集約する
   const [tracks, tracksHandler] = useListState<QuizTrack>([]);
   const [selectedAnswers, setSelectedAnswers] = useInputState<Record<string, QuizTrackQuality | null>>({});
   const [feedback, setFeedback] = useInputState<FeedbackState | null>(null);
@@ -183,6 +185,7 @@ export function AudioQuiz() {
     return dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name;
   }, [file]);
 
+  // オリジナルファイルの拡張子は保持しておき、コピー時はコーデックを弄らず正しいMIMEに結び付ける
   const originalExtension = useMemo(() => {
     if (!file) {
       return 'orig';
@@ -250,6 +253,7 @@ export function AudioQuiz() {
       return;
     }
     startConverting();
+    // 変換開始時点で再生状態と既存URLを初期化し、UIとFFmpegの状態ズレを事前に解消する
     resetPlayingState();
     revokeTrackUrls();
     tracksHandler.setState([]);
@@ -290,6 +294,7 @@ export function AudioQuiz() {
         const args = [...plan.command, plan.outputName];
         await ffmpeg.exec(args);
         const data = await ffmpeg.readFile(plan.outputName);
+        // wasm FSは文字列/Uint8Arrayの両方を返し得るため、型を正規化してBlob生成を単純化する
         const uint8Array = data instanceof Uint8Array ? new Uint8Array(data) : new TextEncoder().encode(data);
         const blob = new Blob([uint8Array], { type: plan.mime });
         const url = URL.createObjectURL(blob);
@@ -302,6 +307,7 @@ export function AudioQuiz() {
         });
       }
 
+      // トラックの提示順はシャッフルして認知バイアスを排除し、推測難易度を維持する
       const shuffled = shuffle(preparedTracks);
       tracksHandler.setState(shuffled);
       const initialAnswers: Record<string, QuizTrackQuality | null> = {};
@@ -359,6 +365,7 @@ export function AudioQuiz() {
       if (!Number.isFinite(duration)) {
         return;
       }
+      // 端点をclampし、操作ごとに累積誤差を防いで意図しないマイナス方向のオーバーフローを抑止する
       const nextPosition = Math.min(Math.max(currentPosition + offsetSeconds, 0), duration);
       targetSound.seek(nextPosition);
     },
