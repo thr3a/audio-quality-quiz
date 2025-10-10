@@ -82,6 +82,7 @@ function AudioTrackPlayer({
   onSoundUpdate,
   onAnswerChange
 }: AudioTrackPlayerProps) {
+  // useSoundの戻り値を分解し、Howlerインスタンスを直接取得して親に伝播できるように保持する
   const [play, { stop, sound }] = useSound(track.url, {
     format: ['mp3', 'wav'],
     html5: true, // BlobURLの場合はHTML5モードを使用
@@ -98,6 +99,7 @@ function AudioTrackPlayer({
 
   const { id: trackId } = track;
 
+  // 再生状態とHowlerインスタンスの同期を手動で行い、useSound内部のキャッシュ差異によるズレを吸収する
   useEffect(() => {
     if (isPlaying && sound) {
       onSoundUpdate(trackId, sound);
@@ -141,6 +143,7 @@ function AudioTrackPlayer({
 export function AudioQuiz() {
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set());
+  // useDisclosureで読み込み/変換といったブール状態を一括管理し、複雑なトグル処理を避けている
   const [coreLoaded, { open: markCoreLoaded }] = useDisclosure(false);
   const [coreLoading, { open: startCoreLoading, close: finishCoreLoading }] = useDisclosure(false);
   const [converting, { open: startConverting, close: finishConverting }] = useDisclosure(false);
@@ -152,6 +155,7 @@ export function AudioQuiz() {
   // 再生中のトラックごとのHowlインスタンスを記録するリファレンス
   const soundMapRef = useRef<Record<string, Howl | null>>({});
 
+  // FFmpeg wasmインスタンスとObjectURLの寿命をアプリ全体に渡って正しく制御する
   useEffect(() => {
     const ffmpeg = new FFmpeg();
     const logHandler = ({ message }: LogEvent) => {
@@ -170,6 +174,7 @@ export function AudioQuiz() {
     };
   }, []);
 
+  // アップロードファイル名から拡張子を除去したベース名を抽出し、変換結果の識別子衝突を防ぐ
   const baseFileName = useMemo(() => {
     if (!file) {
       return 'upload';
@@ -195,6 +200,7 @@ export function AudioQuiz() {
 
   async function loadCore() {
     const ffmpeg = ffmpegRef.current;
+    // FFmpegの多重ロードを避けつつ、ユーザーの二度押しによる競合も吸収する
     if (!ffmpeg || coreLoaded) {
       return;
     }
@@ -215,11 +221,13 @@ export function AudioQuiz() {
   }
 
   const resetPlayingState = useCallback(() => {
+    // useRefに蓄積したHowler参照はmutateだけでは解放されないため、参照を空オブジェクトに再構築する
     setPlayingTrackId(null);
     soundMapRef.current = {};
   }, []);
 
   const revokeTrackUrls = useCallback(() => {
+    // ObjectURLはGC任せにするとリークが起きるので、変換やアンマウント契機で明示的に解放する
     for (const url of objectUrlsRef.current) {
       URL.revokeObjectURL(url);
     }
@@ -227,6 +235,7 @@ export function AudioQuiz() {
   }, []);
 
   const handleSoundUpdate = useCallback((trackId: string, sound: Howl | null) => {
+    // Howlerはミューテーション主体のAPIなので、参照の履歴が残らないよう最新状態で上書き保持する
     soundMapRef.current[trackId] = sound;
   }, []);
 
@@ -245,6 +254,7 @@ export function AudioQuiz() {
     revokeTrackUrls();
     tracksHandler.setState([]);
     const baseIdentifier = `${baseFileName}_${Date.now()}`;
+    // wasm FSは名前空間が薄いため、ミリ秒タイムスタンプを鍵にして競合しないプレフィックスを確保する
     try {
       const inputName = `${baseIdentifier}_input.${originalExtension}`;
       await ffmpeg.writeFile(inputName, await fetchFile(file));
@@ -275,6 +285,7 @@ export function AudioQuiz() {
       ];
 
       const preparedTracks: QuizTrack[] = [];
+      // 各品質ごとのエンコードは直列実行してエラーハンドリングを簡略化し、FFmpeg側のキュー暴走を防いでいる
       for (const plan of outputPlans) {
         const args = [...plan.command, plan.outputName];
         await ffmpeg.exec(args);
@@ -306,6 +317,7 @@ export function AudioQuiz() {
       console.error(error);
       setFeedback({ text: '音声変換に失敗しました。別のファイルでお試しください。', tone: 'error' });
     } finally {
+      // wasm FS内の一時ファイルは徐々に肥大化するため、エラー時でもクリーンアップを徹底してメモリ圧迫を防ぐ
       try {
         const ffmpeg = ffmpegRef.current;
         if (ffmpeg) {
@@ -334,6 +346,7 @@ export function AudioQuiz() {
 
   const handleSeek = useCallback(
     (offsetSeconds: number) => {
+      // seekはHowler内部で遅延反映されるため、常に最新のインスタンスを参照する
       if (!playingTrackId) {
         return;
       }
@@ -372,6 +385,7 @@ export function AudioQuiz() {
     }
     let correct = 0;
     const details: string[] = [];
+    // ユーザーへのフィードバックは最終結果だけでなく講評形式で返し、学習体験につなげている
     for (let index = 0; index < tracks.length; index += 1) {
       const track = tracks[index];
       const answer = selectedAnswers[track.id];
