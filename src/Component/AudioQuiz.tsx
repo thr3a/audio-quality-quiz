@@ -342,6 +342,13 @@ export function AudioQuiz() {
   }
 
   function handleTrackPlay(trackId: string) {
+    if (playingTrackId && playingTrackId !== trackId) {
+      const currentSound = soundMapRef.current[playingTrackId];
+      if (currentSound) {
+        currentSound.stop();
+      }
+      handleSoundUpdate(playingTrackId, null);
+    }
     setPlayingTrackId(trackId);
   }
 
