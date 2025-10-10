@@ -17,6 +17,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure, useInputState, useListState } from '@mantine/hooks';
 import { IconInfoCircle, IconPlayerPlayFilled, IconPlayerStopFilled } from '@tabler/icons-react';
+import type { Howl } from 'howler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useSound from 'use-sound';
 
@@ -67,6 +68,7 @@ type AudioTrackPlayerProps = {
   selectedAnswer: QuizTrackQuality | null;
   onPlay: () => void;
   onStop: () => void;
+  onSoundUpdate: (trackId: string, sound: Howl | null) => void;
   onAnswerChange: (value: string | null) => void;
 };
 
@@ -77,9 +79,10 @@ function AudioTrackPlayer({
   selectedAnswer,
   onPlay,
   onStop,
+  onSoundUpdate,
   onAnswerChange
 }: AudioTrackPlayerProps) {
-  const [play, { stop }] = useSound(track.url, {
+  const [play, { stop, sound }] = useSound(track.url, {
     format: ['mp3', 'wav'],
     html5: true, // BlobURLの場合はHTML5モードを使用
     onend: () => {
@@ -92,6 +95,16 @@ function AudioTrackPlayer({
       console.error('Sound play error:', error);
     }
   });
+
+  const { id: trackId } = track;
+
+  useEffect(() => {
+    if (isPlaying && sound) {
+      onSoundUpdate(trackId, sound);
+      return;
+    }
+    onSoundUpdate(trackId, null);
+  }, [isPlaying, onSoundUpdate, sound, trackId]);
 
   const handlePlayClick = () => {
     if (isPlaying) {
@@ -136,6 +149,8 @@ export function AudioQuiz() {
   const [selectedAnswers, setSelectedAnswers] = useInputState<Record<string, QuizTrackQuality | null>>({});
   const [feedback, setFeedback] = useInputState<FeedbackState | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  // 再生中のトラックごとのHowlインスタンスを記録するリファレンス
+  const soundMapRef = useRef<Record<string, Howl | null>>({});
 
   useEffect(() => {
     const ffmpeg = new FFmpeg();
@@ -201,6 +216,7 @@ export function AudioQuiz() {
 
   const resetPlayingState = useCallback(() => {
     setPlayingTrackId(null);
+    soundMapRef.current = {};
   }, []);
 
   const revokeTrackUrls = useCallback(() => {
@@ -208,6 +224,10 @@ export function AudioQuiz() {
       URL.revokeObjectURL(url);
     }
     objectUrlsRef.current.clear();
+  }, []);
+
+  const handleSoundUpdate = useCallback((trackId: string, sound: Howl | null) => {
+    soundMapRef.current[trackId] = sound;
   }, []);
 
   async function handleConvert() {
@@ -307,9 +327,30 @@ export function AudioQuiz() {
     setPlayingTrackId(trackId);
   }
 
-  function handleTrackStop() {
-    setPlayingTrackId(null);
+  function handleTrackStop(trackId: string) {
+    handleSoundUpdate(trackId, null);
+    setPlayingTrackId((current) => (current === trackId ? null : current));
   }
+
+  const handleSeek = useCallback(
+    (offsetSeconds: number) => {
+      if (!playingTrackId) {
+        return;
+      }
+      const targetSound = soundMapRef.current[playingTrackId];
+      if (!targetSound) {
+        return;
+      }
+      const currentPosition = targetSound.seek() as number;
+      const duration = targetSound.duration();
+      if (!Number.isFinite(duration)) {
+        return;
+      }
+      const nextPosition = Math.min(Math.max(currentPosition + offsetSeconds, 0), duration);
+      targetSound.seek(nextPosition);
+    },
+    [playingTrackId]
+  );
 
   function handleAnswerChange(trackId: string, value: string | null) {
     if (!value) {
@@ -359,7 +400,7 @@ export function AudioQuiz() {
             <Title order={2}>音質当てクイズ</Title>
           </Anchor>
           <Title order={6} c={'dimmed'}>
-            好きな音楽をアップロードして、音質の違いを当ててみよう！
+            自分の楽曲をアップロードして、音質の違いがわかるかチャレンジ！
           </Title>
         </Box>
 
@@ -402,10 +443,19 @@ export function AudioQuiz() {
                   isPlaying={playingTrackId === track.id}
                   selectedAnswer={selectedAnswers[track.id] ?? null}
                   onPlay={() => handleTrackPlay(track.id)}
-                  onStop={handleTrackStop}
+                  onStop={() => handleTrackStop(track.id)}
+                  onSoundUpdate={handleSoundUpdate}
                   onAnswerChange={(value) => handleAnswerChange(track.id, value)}
                 />
               ))}
+              <Group justify='center' gap='sm'>
+                <Button variant='light' onClick={() => handleSeek(-5)} disabled={!playingTrackId}>
+                  5秒戻る
+                </Button>
+                <Button variant='light' onClick={() => handleSeek(5)} disabled={!playingTrackId}>
+                  5秒進む
+                </Button>
+              </Group>
               <Center>
                 <Button onClick={checkAnswers}>解答チェック!</Button>
               </Center>
