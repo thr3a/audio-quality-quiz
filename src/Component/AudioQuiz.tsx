@@ -16,8 +16,9 @@ import {
   Title
 } from '@mantine/core';
 import { useDisclosure, useInputState, useListState } from '@mantine/hooks';
-import { IconInfoCircle, IconPlayerPlayFilled } from '@tabler/icons-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { IconInfoCircle, IconPlayerPlayFilled, IconPlayerStopFilled } from '@tabler/icons-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useSound from 'use-sound';
 
 const FF_CORE_BASE_URL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
 const CORE_JS_URL = `${FF_CORE_BASE_URL}/ffmpeg-core.js`;
@@ -58,11 +59,74 @@ function shuffle<T>(items: T[]): T[] {
   return [...items].sort(() => Math.random() - 0.5);
 }
 
+// 各トラックの再生を管理するコンポーネント
+type AudioTrackPlayerProps = {
+  track: QuizTrack;
+  index: number;
+  isPlaying: boolean;
+  selectedAnswer: QuizTrackQuality | null;
+  onPlay: () => void;
+  onStop: () => void;
+  onAnswerChange: (value: string | null) => void;
+};
+
+function AudioTrackPlayer({
+  track,
+  index,
+  isPlaying,
+  selectedAnswer,
+  onPlay,
+  onStop,
+  onAnswerChange
+}: AudioTrackPlayerProps) {
+  const [play, { stop }] = useSound(track.url, {
+    format: ['mp3', 'wav'],
+    html5: true, // BlobURLの場合はHTML5モードを使用
+    onend: () => {
+      onStop();
+    },
+    onloaderror: (_id: unknown, error: unknown) => {
+      console.error('Sound load error:', error);
+    },
+    onplayerror: (_id: unknown, error: unknown) => {
+      console.error('Sound play error:', error);
+    }
+  });
+
+  const handlePlayClick = () => {
+    if (isPlaying) {
+      stop();
+      onStop();
+    } else {
+      play();
+      onPlay();
+    }
+  };
+
+  return (
+    <Stack gap='xs'>
+      <Group>
+        <Button
+          leftSection={isPlaying ? <IconPlayerStopFilled size={18} /> : <IconPlayerPlayFilled size={18} />}
+          variant={isPlaying ? 'filled' : 'light'}
+          onClick={handlePlayClick}
+        >
+          {isPlaying ? `曲${index + 1}を停止` : `曲${index + 1}を再生`}
+        </Button>
+        <Select
+          placeholder='▼選択'
+          data={QUALITY_OPTIONS}
+          value={selectedAnswer ?? null}
+          onChange={onAnswerChange}
+          maw={200}
+        />
+      </Group>
+    </Stack>
+  );
+}
+
 export function AudioQuiz() {
   const ffmpegRef = useRef<FFmpeg | null>(null);
-  const audioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-  const limitHandlersRef = useRef<Record<string, () => void>>({});
-  const endedHandlersRef = useRef<Record<string, () => void>>({});
   const objectUrlsRef = useRef<Set<string>>(new Set());
   const [coreLoaded, { open: markCoreLoaded }] = useDisclosure(false);
   const [coreLoading, { open: startCoreLoading, close: finishCoreLoading }] = useDisclosure(false);
@@ -71,8 +135,7 @@ export function AudioQuiz() {
   const [tracks, tracksHandler] = useListState<QuizTrack>([]);
   const [selectedAnswers, setSelectedAnswers] = useInputState<Record<string, QuizTrackQuality | null>>({});
   const [feedback, setFeedback] = useInputState<FeedbackState | null>(null);
-  const playingTrackIdRef = useRef<string | null>(null);
-  const audioRefCallbacks = useRef<Map<string, (instance: HTMLAudioElement | null) => void>>(new Map());
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
 
   useEffect(() => {
     const ffmpeg = new FFmpeg();
@@ -82,21 +145,6 @@ export function AudioQuiz() {
     ffmpeg.on('log', logHandler);
     ffmpegRef.current = ffmpeg;
     return () => {
-      for (const [trackId, audio] of Object.entries(audioRefs.current)) {
-        if (!audio) {
-          continue;
-        }
-        audio.pause();
-        audio.currentTime = 0;
-        const limitHandler = limitHandlersRef.current[trackId];
-        if (limitHandler) {
-          audio.removeEventListener('timeupdate', limitHandler);
-        }
-        const endedHandler = endedHandlersRef.current[trackId];
-        if (endedHandler) {
-          audio.removeEventListener('ended', endedHandler);
-        }
-      }
       for (const url of objectUrlsRef.current) {
         URL.revokeObjectURL(url);
       }
@@ -151,27 +199,8 @@ export function AudioQuiz() {
     }
   }
 
-  const resetAudioRefs = useCallback(() => {
-    for (const [trackId, audio] of Object.entries(audioRefs.current)) {
-      if (!audio) {
-        continue;
-      }
-      audio.pause();
-      audio.currentTime = 0;
-      const limitHandler = limitHandlersRef.current[trackId];
-      if (limitHandler) {
-        audio.removeEventListener('timeupdate', limitHandler);
-      }
-      const endedHandler = endedHandlersRef.current[trackId];
-      if (endedHandler) {
-        audio.removeEventListener('ended', endedHandler);
-      }
-    }
-    audioRefs.current = {};
-    limitHandlersRef.current = {};
-    endedHandlersRef.current = {};
-    playingTrackIdRef.current = null;
-    audioRefCallbacks.current.clear();
+  const resetPlayingState = useCallback(() => {
+    setPlayingTrackId(null);
   }, []);
 
   const revokeTrackUrls = useCallback(() => {
@@ -192,7 +221,7 @@ export function AudioQuiz() {
       return;
     }
     startConverting();
-    resetAudioRefs();
+    resetPlayingState();
     revokeTrackUrls();
     tracksHandler.setState([]);
     const baseIdentifier = `${baseFileName}_${Date.now()}`;
@@ -274,91 +303,12 @@ export function AudioQuiz() {
     }
   }
 
-  function handlePlay(trackId: string) {
-    const target = audioRefs.current[trackId];
-    if (!target) {
-      return;
-    }
-    const isSame = playingTrackIdRef.current === trackId;
-    for (const [id, audio] of Object.entries(audioRefs.current)) {
-      if (!audio) {
-        continue;
-      }
-      if (id !== trackId || isSame) {
-        audio.pause();
-        audio.currentTime = 0;
-      }
-    }
-    if (isSame) {
-      playingTrackIdRef.current = null;
-      return;
-    }
-    playingTrackIdRef.current = trackId;
-    target.currentTime = 0;
-    void target.play().catch((error) => {
-      console.error(error);
-      playingTrackIdRef.current = null;
-      setFeedback({ text: '音声の再生に失敗しました。もう一度お試しください。', tone: 'error' });
-    });
+  function handleTrackPlay(trackId: string) {
+    setPlayingTrackId(trackId);
   }
 
-  function getAudioRef(trackId: string) {
-    const existing = audioRefCallbacks.current.get(trackId);
-    if (existing) {
-      return existing;
-    }
-
-    const callback = (instance: HTMLAudioElement | null) => {
-      const previous = audioRefs.current[trackId];
-      if (previous === instance) {
-        return;
-      }
-      if (previous) {
-        previous.pause();
-        previous.currentTime = 0;
-        const previousLimitHandler = limitHandlersRef.current[trackId];
-        if (previousLimitHandler) {
-          previous.removeEventListener('timeupdate', previousLimitHandler);
-        }
-        const previousEndedHandler = endedHandlersRef.current[trackId];
-        if (previousEndedHandler) {
-          previous.removeEventListener('ended', previousEndedHandler);
-        }
-      }
-      if (!instance) {
-        delete audioRefs.current[trackId];
-        delete limitHandlersRef.current[trackId];
-        delete endedHandlersRef.current[trackId];
-        if (playingTrackIdRef.current === trackId) {
-          playingTrackIdRef.current = null;
-        }
-        audioRefCallbacks.current.delete(trackId);
-        return;
-      }
-      const limitHandler = () => {
-        if (instance.currentTime >= MAX_PLAY_SECONDS) {
-          instance.pause();
-          instance.currentTime = 0;
-          if (playingTrackIdRef.current === trackId) {
-            playingTrackIdRef.current = null;
-          }
-        }
-      };
-      const endedHandler = () => {
-        instance.currentTime = 0;
-        if (playingTrackIdRef.current === trackId) {
-          playingTrackIdRef.current = null;
-        }
-      };
-      instance.addEventListener('timeupdate', limitHandler);
-      instance.addEventListener('ended', endedHandler);
-      audioRefs.current[trackId] = instance;
-      limitHandlersRef.current[trackId] = limitHandler;
-      endedHandlersRef.current[trackId] = endedHandler;
-    };
-
-    audioRefCallbacks.current.set(trackId, callback);
-    return callback;
+  function handleTrackStop() {
+    setPlayingTrackId(null);
   }
 
   function handleAnswerChange(trackId: string, value: string | null) {
@@ -445,37 +395,19 @@ export function AudioQuiz() {
           <Paper withBorder p='lg'>
             <Stack gap='lg' mb={'xs'}>
               {tracks.map((track, index) => (
-                <Stack key={track.id} gap='xs'>
-                  <Group>
-                    <Button
-                      leftSection={<IconPlayerPlayFilled size={18} />}
-                      variant='light'
-                      color='blue'
-                      onClick={() => handlePlay(track.id)}
-                    >
-                      {`曲${index + 1}を再生`}
-                    </Button>
-                    <Select
-                      placeholder='▼選択'
-                      data={QUALITY_OPTIONS}
-                      value={selectedAnswers[track.id] ?? null}
-                      onChange={(value) => handleAnswerChange(track.id, value)}
-                      maw={200}
-                    />
-                  </Group>
-                  <audio ref={getAudioRef(track.id)} src={track.url} preload='auto'>
-                    <track
-                      kind='captions'
-                      label='空字幕'
-                      src='data:text/vtt,WEBVTT%0A%0A00:00:00.000%20-->%2000:00:00.500%0A音声トラック%0A'
-                      srcLang='ja'
-                      default
-                    />
-                  </audio>
-                </Stack>
+                <AudioTrackPlayer
+                  key={track.id}
+                  track={track}
+                  index={index}
+                  isPlaying={playingTrackId === track.id}
+                  selectedAnswer={selectedAnswers[track.id] ?? null}
+                  onPlay={() => handleTrackPlay(track.id)}
+                  onStop={handleTrackStop}
+                  onAnswerChange={(value) => handleAnswerChange(track.id, value)}
+                />
               ))}
               <Center>
-                <Button onClick={checkAnswers}>解答チェック！</Button>
+                <Button onClick={checkAnswers}>解答チェック!</Button>
               </Center>
             </Stack>
           </Paper>
